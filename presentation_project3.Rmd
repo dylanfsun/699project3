@@ -1,0 +1,20 @@
+---
+title: "presentation"
+author: "Dylan Sun"
+date: "2/16/2017"
+output: slidy_presentation
+---
+
+
+```{r, message=FALSE, warning=FALSE}
+library(data.table)
+library(readxl)
+```
+
+
+
+
+## Study aims
+
+
+

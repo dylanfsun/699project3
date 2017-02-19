@@ -1,0 +1,152 @@
+---
+title: "pPaper"
+author: "Dylan Sun"
+date: "2/16/2017"
+output: pdf_document
+---
+
+### Load packages
+```{r, message=FALSE, warning=FALSE}
+library(data.table)
+library(readxl)
+library(survival)
+library(knitr)
+library(tableone)
+
+```
+
+### Load data
+```{r}
+cardiac <- read_excel("~/Downloads/cardiac_mirna.xlsx")
+cardiac <- data.table(cardiac, na.strings = c("NA"))
+library(readr)
+write_tsv(cardiac, "cardiac.tsv")
+cardiac <- fread("cardiac.tsv")
+
+cardiac <- cardiac[, PTV_Volume..cc. := as.numeric(PTV_Volume..cc.)]
+cardiac <- cardiac[, Framingham.Coronary.Heart.Disease.Risk.Score..MDCalc. :=
+                     as.numeric(Framingham.Coronary.Heart.Disease.Risk.Score..MDCalc.)]
+setnames(cardiac, c("Grade 3+ Cardiac Event", "Grade 2+ Cardiac Event", "Event.of.Death..0.no.1.yes."), c("Grade3", "Grade2", "EventOfDeath"))
+
+### add column: whether or not the person died BEFORE having a grade 2 event
+cardiac <- cardiac[, ]
+```
+
+Number of people that died from cardiac disease?:
+```{r}
+dim(cardiac[`Grade 2+ Cardiac Event` == 0 & Event.of.Death..0.no.1.yes. == 1])
+dim(cardiac[`Grade 3+ Cardiac Event` == 0 & Event.of.Death..0.no.1.yes. == 1])
+```
+
+
+```{r}
+# percentages are calculated after excluding missing values
+vars <- c("Age", "KPS", "Total.Chol..btw.130.320..", "HDL.Chol.Found..0.no.1.yes.",
+          "HDL.Chol..btw.20.100..", "Systolic.BP..btw.20.190..", "Diastolic.BP..btw.30.140..",
+          "Framingham.Coronary.Heart.Disease.Risk.Score..MDCalc.", "Final.Dose(tumor)", 
+          "BED.Final.Dose(tumor)", "survival", "Volume Heart (cc)", 
+          "heart_Meandose", "heart_v5", "heart_V10", "heart_V20", "heart_V30", "heart_V40", 
+          "heart_V50", "heart_V60", "D0.5cc.LQ......2.5..EQD2Gy.", "D2cc.LQ......2.5..EQD2Gy.", 
+          "Charlson.Comorbidity.Score", "Maximum.Heart.Event.Grade", "time.to.grade3",
+          "time.to.grade2", "PTV_Volume..cc.", "Institution", "Gender.M.F", "Race..AA...0.White...1.Other...2", 
+              "Current.Smoker.0.no..1.yes", "Smoking.status.0.never...........1..former.2.current",
+              "Pack.Year.History", "Diabetes.0.no..1.yes", "High.Cholestorol.Treated..0.no.1.yes", 
+              "BP.found..0.no.1.yes.", "Hypertension.0.no.1.yes", 
+              "HBP.Treated.0.no..1.yes..on.meds..", "Aspirin.Use.0.no..1.yes", 
+              "Pre.Existing.CAD..stent..CABG..acute.coronary.syndrome..0.no.1.yes", 
+               "Pre.Existing.Congestive.heart.failure..CHF..0.no.1.yes", 
+              "Pre.existing.arrhythmia.0.no..1.yes", 
+              "Pre.Existing.Cardiac.Disease..CADorCHF..0.no.1.yes", "Simple.Stage", 
+              "Overall.Stage", "T.Stage", "N.Stage", "M.Stage", 
+              "Concurrent.chemotherapy..0.no.1.yes.", "Event.of.Death..0.no.1.yes.", 
+              "Grade 3+ Cardiac Event", "Grade 2+ Cardiac Event",
+              "Pre.Existing.Cardiac.Disease..CADorCHF..1.no.0.yes" )
+cat_vars <- c("Institution", "Gender.M.F", "Race..AA...0.White...1.Other...2", 
+              "Current.Smoker.0.no..1.yes", "Smoking.status.0.never...........1..former.2.current",
+              "Diabetes.0.no..1.yes", "High.Cholestorol.Treated..0.no.1.yes", 
+              "BP.found..0.no.1.yes.", "Hypertension.0.no.1.yes", 
+              "HBP.Treated.0.no..1.yes..on.meds..", "Aspirin.Use.0.no..1.yes", 
+              "Pre.Existing.CAD..stent..CABG..acute.coronary.syndrome..0.no.1.yes", 
+               "Pre.Existing.Congestive.heart.failure..CHF..0.no.1.yes", 
+              "Pre.existing.arrhythmia.0.no..1.yes", 
+              "Pre.Existing.Cardiac.Disease..CADorCHF..0.no.1.yes", "Simple.Stage", 
+              "Overall.Stage", "T.Stage", "N.Stage", "M.Stage", 
+              "Concurrent.chemotherapy..0.no.1.yes.", "Event.of.Death..0.no.1.yes.", 
+              "Grade 3+ Cardiac Event", "Grade 2+ Cardiac Event",
+              "Pre.Existing.Cardiac.Disease..CADorCHF..1.no.0.yes" )
+tab1 <- CreateTableOne(data = cardiac, vars = vars, factorVars = cat_vars, includeNA = F)
+tab1mat <- print(tab1, showAllLevels = T)
+write.csv(tab1mat, file = "tableone.csv")
+descriptive <- fread("tableone.csv")
+```
+
+
+## Important descriptive stats
+Be careful; there are two "Pre.Existing.Cardiac.Disease..CADorCHF..0.no.1.yes" variables...
+```{r}
+# percentages are calculated after excluding missing values
+vars <- c("Age", "Framingham.Coronary.Heart.Disease.Risk.Score..MDCalc.",
+            "Grade3", "Grade2",
+              "Pre.Existing.Cardiac.Disease..CADorCHF..0.no.1.yes" )
+cat_vars <- c("Grade3", "Grade2",
+              "Pre.Existing.Cardiac.Disease..CADorCHF..0.no.1.yes" )
+tab1 <- CreateTableOne(data = cardiac, vars = vars, factorVars = cat_vars, strata = "EventOfDeath")
+tab1mat <- print(tab1, showAllLevels = T)
+```
+
+
+
+## Model 
+Variables: Radiation dose, heart disease y/n, framingham risk score (only have his if no cardiac disease)
+Outcome: Survival (months) or last follow-up 
+
+Age, gender, other variables are sort of contained in the Framingham risk score (but not for people that have pre-existing disease). There are few non-whites in the study and relatively few females in the study, so including these is questionable. 
+
+Framingham score might be associated with age and gender? Positive correlation pattern between Age and Framingham risk score. Framingham risk score is composed of other variables including:  age, sex, LDL cholesterol, HDL cholesterol, blood pressure, and smoking. Therefore including risk score while also including these other variables is a little suspicious. We only have Framingham risk score if the patient does not have pre-existing cardiac disease. Keep in mind also that the scoring is a bit different between men and women. 
+
+We may have to fit separate models depending on whether or not the patient has a pre-existing cardiac condition (i.e. whether or not the patient has a Framingham risk score; right now when you fit the model it just omits the entries with no risk score, because there's missing data)
+
+```{r}
+plot(cardiac$Framingham.Coronary.Heart.Disease.Risk.Score..MDCalc., cardiac$Age)
+sum(cardiac$Pre.Existing.Cardiac.Disease..CADorCHF..1.no.0.yes)/dim(cardiac)[1]
+```
+
+
+```{r}
+surv_death <- Surv(cardiac[, survival], cardiac[, EventOfDeath])
+cox_model <- coxph(surv_death ~  Framingham.Coronary.Heart.Disease.Risk.Score..MDCalc. +
+                     heart_Meandose,
+                   data = cardiac)
+summary(cox_model)
+```
+
+
+```{r}
+surv_grade3 <- Surv(time = cardiac[, time.to.grade3], event = cardiac[, Grade3])
+cox_model <- coxph(surv_grade3 ~ 
+                     Framingham.Coronary.Heart.Disease.Risk.Score..MDCalc. + 
+                     heart_Meandose, data = cardiac)
+summary(cox_model)
+```
+
+```{r}
+surv_grade2 <- Surv(time = cardiac[, time.to.grade2], event = cardiac[, Grade2])
+cox_model <- coxph(surv_grade2 ~ 
+                     Framingham.Coronary.Heart.Disease.Risk.Score..MDCalc. + 
+                     heart_Meandose, data = cardiac)
+summary(cox_model)
+plot(survfit(cox_model))
+```
+
+
+### Look at columns to figure out the competing risk situation
+```{r}
+View(cardiac[, .(survival, time.to.grade3, time.to.grade2, EventOfDeath, Grade3, Grade2)])
+```
+
+
+
+
+
+
+
