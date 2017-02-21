@@ -1,5 +1,5 @@
 ---
-title: "pPaper"
+title: "Paper"
 author: "Dylan Sun"
 date: "2/16/2017"
 output: pdf_document
@@ -12,30 +12,47 @@ library(readxl)
 library(survival)
 library(knitr)
 library(tableone)
-
+library(ggplot2)
+library(rms)
+library(glmnet)
+library(broom)
 ```
 
 ### Load data
 ```{r}
-cardiac <- read_excel("~/Downloads/cardiac_mirna.xlsx")
-cardiac <- data.table(cardiac, na.strings = c("NA"))
-library(readr)
-write_tsv(cardiac, "cardiac.tsv")
+#cardiac <- read_excel("~/Downloads/cardiac_mirna.xlsx")
+#cardiac <- data.table(cardiac, na.strings = c("NA"))
+#library(readr)
+#write_tsv(cardiac, "cardiac.tsv")
 cardiac <- fread("cardiac.tsv")
 
+framingham_vars <- c("Age", "Total.Chol..btw.130.320..",
+          "HDL.Chol..btw.20.100..", "Systolic.BP..btw.20.190..", 
+              "Current.Smoker.0.no..1.yes", 
+              "HBP.Treated.0.no..1.yes..on.meds..", 
+              "Pre.Existing.Cardiac.Disease..CADorCHF..0.no.1.yes")
+
 cardiac <- cardiac[, PTV_Volume..cc. := as.numeric(PTV_Volume..cc.)]
-cardiac <- cardiac[, Framingham.Coronary.Heart.Disease.Risk.Score..MDCalc. :=
+cardiac <- cardiac[, heart_Meandose := as.numeric(heart_Meandose)]
+cardiac <- cardiac[, Framingham.Coronary.Heart.Disease.Risk.Score..MDCalc. := 
                      as.numeric(Framingham.Coronary.Heart.Disease.Risk.Score..MDCalc.)]
+for (j in framingham_vars) {
+  set(cardiac, j = j, value = as.numeric(cardiac[[j]]))
+}
+cardiac <- cardiac[49, time.to.grade2 := 19.3]
 setnames(cardiac, c("Grade 3+ Cardiac Event", "Grade 2+ Cardiac Event", "Event.of.Death..0.no.1.yes."), c("Grade3", "Grade2", "EventOfDeath"))
 
 ### add column: whether or not the person died BEFORE having a grade 2 event
-cardiac <- cardiac[, ]
+### for competing risk purposes?
+cardiac <- cardiac[, dieBeforeGrade2 := ifelse(EventOfDeath == 1 & Grade2 == 0, 1, 0)]
 ```
 
 Number of people that died from cardiac disease?:
 ```{r}
-dim(cardiac[`Grade 2+ Cardiac Event` == 0 & Event.of.Death..0.no.1.yes. == 1])
-dim(cardiac[`Grade 3+ Cardiac Event` == 0 & Event.of.Death..0.no.1.yes. == 1])
+dim(cardiac[Grade2 == 0 & EventOfDeath == 1])
+dim(cardiac[Grade3 == 0 & EventOfDeath == 1])
+dim(cardiac[Grade3 == 0 & Grade2 == 0 & EventOfDeath == 1])
+dim(cardiac[Grade3 == 0 & Grade2 == 0 & EventOfDeath == 0])
 ```
 
 
@@ -60,7 +77,7 @@ vars <- c("Age", "KPS", "Total.Chol..btw.130.320..", "HDL.Chol.Found..0.no.1.yes
               "Overall.Stage", "T.Stage", "N.Stage", "M.Stage", 
               "Concurrent.chemotherapy..0.no.1.yes.", "Event.of.Death..0.no.1.yes.", 
               "Grade 3+ Cardiac Event", "Grade 2+ Cardiac Event",
-              "Pre.Existing.Cardiac.Disease..CADorCHF..1.no.0.yes" )
+              "Pre.Existing.Cardiac.Disease..CADorCHF..1.no.0.yes")
 cat_vars <- c("Institution", "Gender.M.F", "Race..AA...0.White...1.Other...2", 
               "Current.Smoker.0.no..1.yes", "Smoking.status.0.never...........1..former.2.current",
               "Diabetes.0.no..1.yes", "High.Cholestorol.Treated..0.no.1.yes", 
@@ -85,13 +102,17 @@ descriptive <- fread("tableone.csv")
 Be careful; there are two "Pre.Existing.Cardiac.Disease..CADorCHF..0.no.1.yes" variables...
 ```{r}
 # percentages are calculated after excluding missing values
-vars <- c("Age", "Framingham.Coronary.Heart.Disease.Risk.Score..MDCalc.",
+vars <- c("Age", "heart_Meandose","Framingham.Coronary.Heart.Disease.Risk.Score..MDCalc.",
             "Grade3", "Grade2",
               "Pre.Existing.Cardiac.Disease..CADorCHF..0.no.1.yes" )
 cat_vars <- c("Grade3", "Grade2",
               "Pre.Existing.Cardiac.Disease..CADorCHF..0.no.1.yes" )
-tab1 <- CreateTableOne(data = cardiac, vars = vars, factorVars = cat_vars, strata = "EventOfDeath")
+#tab1 <- CreateTableOne(data = cardiac, vars = vars, factorVars = cat_vars, strata = "EventOfDeath")
+tab1 <- CreateTableOne(data = cardiac, vars = vars, factorVars = cat_vars, strata = "Gender.M.F")
+
 tab1mat <- print(tab1, showAllLevels = T)
+write.csv(tab1mat, "table1.csv")
+tabl1m <- fread("table1.csv")
 ```
 
 
@@ -104,7 +125,7 @@ Age, gender, other variables are sort of contained in the Framingham risk score 
 
 Framingham score might be associated with age and gender? Positive correlation pattern between Age and Framingham risk score. Framingham risk score is composed of other variables including:  age, sex, LDL cholesterol, HDL cholesterol, blood pressure, and smoking. Therefore including risk score while also including these other variables is a little suspicious. We only have Framingham risk score if the patient does not have pre-existing cardiac disease. Keep in mind also that the scoring is a bit different between men and women. 
 
-We may have to fit separate models depending on whether or not the patient has a pre-existing cardiac condition (i.e. whether or not the patient has a Framingham risk score; right now when you fit the model it just omits the entries with no risk score, because there's missing data)
+We may have to fit separate models depending on whether or not the patient has a pre-existing cardiac condition (i.e. whether or not the patient has a Framingham risk score; right now when you fit the model it just omits the entries with no risk score, because there's missing data). We are missing a lot of people's framingham risk scores. If you look at the data that goes into the Framingham risk score, however, we are only missing patient 1's information. 
 
 ```{r}
 plot(cardiac$Framingham.Coronary.Heart.Disease.Risk.Score..MDCalc., cardiac$Age)
@@ -112,40 +133,220 @@ sum(cardiac$Pre.Existing.Cardiac.Disease..CADorCHF..1.no.0.yes)/dim(cardiac)[1]
 ```
 
 
-```{r}
-surv_death <- Surv(cardiac[, survival], cardiac[, EventOfDeath])
-cox_model <- coxph(surv_death ~  Framingham.Coronary.Heart.Disease.Risk.Score..MDCalc. +
-                     heart_Meandose,
-                   data = cardiac)
-summary(cox_model)
-```
-
-
-```{r}
-surv_grade3 <- Surv(time = cardiac[, time.to.grade3], event = cardiac[, Grade3])
-cox_model <- coxph(surv_grade3 ~ 
-                     Framingham.Coronary.Heart.Disease.Risk.Score..MDCalc. + 
-                     heart_Meandose, data = cardiac)
-summary(cox_model)
-```
-
-```{r}
-surv_grade2 <- Surv(time = cardiac[, time.to.grade2], event = cardiac[, Grade2])
-cox_model <- coxph(surv_grade2 ~ 
-                     Framingham.Coronary.Heart.Disease.Risk.Score..MDCalc. + 
-                     heart_Meandose, data = cardiac)
-summary(cox_model)
-plot(survfit(cox_model))
-```
-
-
 ### Look at columns to figure out the competing risk situation
 ```{r}
-View(cardiac[, .(survival, time.to.grade3, time.to.grade2, EventOfDeath, Grade3, Grade2)])
+View(cardiac[, .(survival, time.to.grade3, time.to.grade2, EventOfDeath, Grade3, Grade2, dieBeforeGrade2)])
+```
+
+### Competing risk model
+We overestimate the number of people that will have a grade 2 if we do not take into account the fact that many people die before having a grade 2.
+```{r}
+etime <- with(cardiac, ifelse(Grade2==0, cardiac$survival, cardiac$time.to.grade2))
+event <- with(cardiac, ifelse(Grade2==0, 2*cardiac$EventOfDeath, 1))
+event <- factor(event, 0:2, labels=c("censor", "grade2", "death"))
+table(event)
+```
+
+### competing risk with continuous
+```{r}
+cfit1 <- coxph(Surv(etime, event=="grade2") ~ 
+                     heart_Meandose + Gender.M.F + Age + 
+                 Total.Chol..btw.130.320.. + HDL.Chol..btw.20.100.. +
+            Systolic.BP..btw.20.190.. + Current.Smoker.0.no..1.yes +
+              HBP.Treated.0.no..1.yes..on.meds.. + 
+              Pre.Existing.Cardiac.Disease..CADorCHF..0.no.1.yes
+            , cardiac)
+cfit2 <- coxph(Surv(etime, event=="death") ~ 
+                     heart_Meandose + Gender.M.F + Age + 
+                 Total.Chol..btw.130.320.. + HDL.Chol..btw.20.100.. +
+            Systolic.BP..btw.20.190.. + Current.Smoker.0.no..1.yes +
+              HBP.Treated.0.no..1.yes..on.meds.. + 
+              Pre.Existing.Cardiac.Disease..CADorCHF..0.no.1.yes
+            , cardiac)
+summary(cfit1)
+#tidy(cfit1)
+#write.csv(format(tidy(cfit1), digits = 1), "basic_model.csv")
+```
+
+### principal components
+
+#### non-micro: doesn't work because of missing data
+Only missing one person's data if we don't include the actual Framingham risk score
+```{r}
+pc_data <- cardiac[2:63, c(framingham_vars), with=F]
+pc <- prcomp(pc_data, center = T, scale. = T)
+summary(pc)
+#write.csv(format(data.frame(unclass(summary(pc)$importance)), digits=2), "fram_pcs.csv")
+```
+#### scree plot
+Four pc's explain 75 percent of the variation for the framingham risk score variables
+```{r}
+plot(pc, type = "l")
+
+#jpeg('fram_scree.jpg')
+#plot(pc, type = "l")
+#dev.off()
+
+```
+
+```{r}
+short_cardiac <- cardiac[2:63]
+etime <- with(short_cardiac, ifelse(Grade2==0, short_cardiac$survival, short_cardiac$time.to.grade2))
+event <- with(short_cardiac, ifelse(Grade2==0, 2*short_cardiac$EventOfDeath, 1))
+event <- factor(event, 0:2, labels=c("censor", "grade2", "death"))
+table(event)
+
+fram_pcs <- cbind(short_cardiac[, .(heart_Meandose, Gender.M.F, Grade2)], data.table(pc$x[,1:4]))
+setnames(fram_pcs, c("PC1", "PC2", "PC3", "PC4"), c("framPC1", "framPC2", "framPC3", "framPC4"))
+# 0.7576 of variance explained by the first 4 principal components
+```
+
+```{r}
+no_fram_fit <- coxph(Surv(etime, event=="grade2") ~ 
+                     heart_Meandose + Gender.M.F
+            , fram_pcs)
+cfit1 <- coxph(Surv(etime, event=="grade2") ~ 
+                     heart_Meandose + Gender.M.F + framPC1 + framPC2 + framPC3 + framPC4
+            , fram_pcs)
+cfit2 <- coxph(Surv(etime, event=="death") ~ 
+                     heart_Meandose + Gender.M.F + framPC1 + framPC2 + framPC3 + framPC4
+            , fram_pcs)
+summary(cfit1)
+#write.csv(format(tidy(cfit1), digits = 1), "frampc_model.csv")
+#summary(no_fram_fit)
+anova(no_fram_fit, cfit1)
+```
+
+```{r}
+newdata <- expand.grid(Gender.M.F=c("F", "M"), heart_Meandose=c(10, 20), 
+                       framPC1=0, framPC2=0, framPC3=0, framPC4=0)
+temp <- matrix(list(), 3,3)
+dimnames(temp) <- list(from=c("Entry", "Grade2", "Death"),
+to=c("Entry", "Grade2", "Death"))
+temp[1,2] <- list(survfit(cfit1, newdata, std.err=FALSE))
+temp[1,3] <- list(survfit(cfit2, newdata, std.err=FALSE))
+csurv <- survfit(temp, p0 =c(1,0,0))
+plot(csurv[,2], xmax=25*12, xscale=12,
+xlab="Time", ylab="Grade2",
+col=1:2, lty=c(1,1,2,2), lwd=2)
+legend(10, .14, outer(c("female", "male "),
+c("dose 10", "dose 20"),
+paste, sep=", "),
+col=1:2, lty=c(1,1,2,2), bty='n', lwd=2)
 ```
 
 
+### on miRNA data
+```{r}
+mirna_vars <- c("NA01","NA03", "NA04", "NA05", "NA06", "NA07", "NA08", "NA09", "NA12", "NB02", "NB03", "NB04", "NB05", "NB06", "NB07", "NB08", "NB09", "NB10", "NB12","NC01", "NC03", "NC04","NC06", "NC08", "NC09", "NC10", "ND01", "ND02", "ND03", "ND04", "ND05", "ND06", "ND07", "ND08", "ND09", "ND10", "ND11", "ND12", "NE01", "NE03", "NE04", "NE06", "NE07", "NE08", "NE10", "NE11", "NE12", "NF01", "NF02", "NF03", "NF05", "NF09", "NF10", "NG01", "NG03", "NG05", "NG06", "NG07", "NG08", "NG09", "NG10","NG11")
+```  
+```{r}
+m_data <- short_cardiac[, c(mirna_vars), with=F]
+#m_data <- m_data[, names(m_data) := lapply(.SD, as.numeric)]
+pc <- prcomp(m_data, center = T, scale. = T)
+mirna_pcs <- cbind(short_cardiac[, .(Grade2)], data.table(pc$x[,1:8]))
+# 0.7552 of variance explained by the first 8 principal components
+```
+#### scree plot
+```{r}
+plot(pc, type = "l")
 
+#write.csv(format(data.frame(unclass(summary(pc)$importance))[,1:10], digits=2), "rna_pcs.csv")
+
+#jpeg('rna_scree.jpg')
+#plot(pc, type = "l")
+#dev.off()
+
+```
+
+```{r}
+qplot(x=PC1, y=PC2, data=mirna_pcs, colour=factor(Grade2)) 
+```
+
+
+## regression with PC's
+```{r}
+cox_model_pc <- coxph(Surv(etime, event=="grade2") ~ 
+                     PC1 + PC2 + PC3 + PC4 + PC5 + PC6 + PC7 + PC8, data = mirna_pcs)
+summary(cox_model_pc)
+#write.csv(format(tidy(cox_model_pc), digits = 1), "rnapc_model.csv")
+```
+
+
+### With the mirna data and also framingham data
+```{r}
+full_data <- cbind(fram_pcs, mirna_pcs)
+# with
+cox_model_full <- coxph(Surv(etime, event=="grade2") ~ 
+                     heart_Meandose + Gender.M.F + framPC1 + framPC2 + framPC3 + framPC4 + 
+                     PC1 + PC2 + PC3 + PC4 + PC5 + PC6 + PC7 + PC8, data = full_data)
+summary(cox_model_full)
+#write.csv(format(tidy(cox_model_full), digits = 1), "full_model.csv")
+
+#plot(survfit(cox_model_full))
+
+```
+
+```{r}
+anova(cfit1, cox_model_full)
+#write.csv(format(tidy(anova(cfit1, cox_model_full)), digits = 1), "anova.csv")
+```
+
+## full model without fram pc
+```{r}
+testfull_data <- cbind(short_cardiac, mirna_pcs)
+testfit <- coxph(Surv(etime, event=="grade2") ~ 
+                     heart_Meandose + Gender.M.F + Age + 
+                 Total.Chol..btw.130.320.. + HDL.Chol..btw.20.100.. +
+            Systolic.BP..btw.20.190.. + Current.Smoker.0.no..1.yes +
+              HBP.Treated.0.no..1.yes..on.meds.. + 
+              Pre.Existing.Cardiac.Disease..CADorCHF..0.no.1.yes +
+              PC1 + PC2 + PC3 + PC4 + PC5 + PC6 + PC7 + PC8
+            , testfull_data)
+summary(testfit)
+anova(cfit1, testfit)
+```
+
+
+## penalty regularization
+```{r}
+#x <- model.matrix( ~heart_Meandose+Gender.M.F+Age+Total.Chol..btw.130.320..+HDL.Chol..btw.20.100..+Systolic.BP..btw.20.190..+Current.Smoker.0.no..1.yes+HBP.Treated.0.no..1.yes..on.meds..+Pre.Existing.Cardiac.Disease..CADorCHF..0.no.1.yes+NA01+NA03+NA04+NA05+NA06+NA07+NA08+NA09+NA12+NB02+NB03+NB04+NB05+NB06+NB07+NB08+NB09+NB10+NB12+NC01+NC03+NC04+NC06+NC08+NC09+NC10+ND01+ND02+ND03+ND04+ND05+ND06+ND07+ND08+ND09+ND10+ND11+ND12+NE01+NE03+NE04+NE06+NE07+NE08+NE10+NE11+NE12+NF01+NF02+NF03+NF05+NF09+NF10+NG01+NG03+NG05+NG06+NG07+NG08+NG09+NG10+NG11, short_cardiac) 
+x <- model.matrix( ~NA01+NA03+NA04+NA05+NA06+NA07+NA08+NA09+NA12+NB02+NB03+NB04+NB05+NB06+NB07+NB08+NB09+NB10+NB12+NC01+NC03+NC04+NC06+NC08+NC09+NC10+ND01+ND02+ND03+ND04+ND05+ND06+ND07+ND08+ND09+ND10+ND11+ND12+NE01+NE03+NE04+NE06+NE07+NE08+NE10+NE11+NE12+NF01+NF02+NF03+NF05+NF09+NF10+NG01+NG03+NG05+NG06+NG07+NG08+NG09+NG10+NG11, short_cardiac) 
+# 1 is male 0 female
+
+
+```
+
+```{r}
+etime <- with(short_cardiac, ifelse(Grade2==0, short_cardiac$survival, short_cardiac$time.to.grade2))
+event <- with(short_cardiac, ifelse(Grade2==0, 2*short_cardiac$EventOfDeath, 1))
+event <- factor(event, 0:2, labels=c("censor", "grade2", "death"))
+#table(event)
+```
+
+```{r}
+## lasso
+cv.fit <- cv.glmnet(x, Surv(etime, event=="grade2"), family = "cox", maxit = 20000, nfolds = 10)
+fit <- glmnet(x, Surv(etime, event=="grade2"), family = "cox", maxit = 20000)
+```
+
+```{r}
+plot(cv.fit)
+
+
+#jpeg('cv.jpg')
+#plot(cv.fit)
+#dev.off()
+```
+
+
+```{r}
+Coefficients <- coef(fit, s = cv.fit$lambda.min)
+Active.Index <- which(Coefficients != 0)
+Active.Coefficients <- Coefficients[Active.Index]
+Active.Index
+Active.Coefficients
+```
 
 
 
