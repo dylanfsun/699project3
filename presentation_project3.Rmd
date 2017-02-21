@@ -153,6 +153,7 @@ library(readxl)
 
 ## Likelihood ratio test comparing models
 Analysis of Deviance Table
+
 - Model 1: ~ heart_Meandose + Gender.M.F + framPC1 + framPC2 + framPC3 + framPC4
 - Model 2: ~ heart_Meandose + Gender.M.F + framPC1 + framPC2 + framPC3 + framPC4 + PC1 + PC2 + PC3 + PC4 + PC5 + PC6 + PC7 + PC8
 
@@ -166,25 +167,29 @@ Analysis of Deviance Table
 ## Lasso
 - glmnet package
 - cox regression with lasso penalty, 10-fold CV
-- Does not subset very well 
+- Does not subset very well; want the line to go down and minimize at a lower feature count
 
 ![](cv.jpg)
 
 
 ## Conclusions and things to look into
-Conclusions:
+Conclusions--if you ignore everything and only look at Grade 2:
+
 - Adding the biomarkers does not signficantly improve model performance
-- There is not good subset of predictive biomarkers
+- There is no good subset of predictive biomarkers
+
 Look into:
-- Assessing model fit somehow (rms package)?
-- Cumulative incidence curves
-- Do something about the competing risk that isn't nothing
+
+- Assessing model fit somehow (rms package)? Cross-validate
+- Cumulative incidence curves and plots in general
+- Do something about the competing risk that isn't essentially nothing
 - Base model fit using non-biomarker data could probably be improved
+- Grade 3 
 
 
 ## Links:
 1. https://cran.r-project.org/web/views/Survival.html
 2. http://www.framinghamheartstudy.org/risk-functions/coronary-heart-disease/hard-10-year-risk.php
 3. http://www.hematologialafe.es/DOCUMENTOS_D/SESION%20LECTURA%20CRITICA/SCRUCCA_L_BMT2009359B.PDF
-
+4. https://github.com/dylanfsun/699project3
 
