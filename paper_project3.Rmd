@@ -12,6 +12,7 @@ knitr::opts_chunk$set(echo = FALSE, message=FALSE, warning=FALSE, results = "hid
 ```
 
 ## Abstract
+Radiotherapy is a treatment for cancer in which radiation is delivered to targeted areas of the body. When used as a treatment for lung cancer, an undesired side-effect is that healthy cardiac cells nearby the targeted area can also be damaged, increasing the risk of having a cardiac event. Patients who are at high risk of having a cardiac event following radiotherapy may want to elect for different treatment options. Current methods to estimate the risk of having a cardiac event involve using patients' medical histories to create a Framingham risk score, which can be calculated using the guidelines on the National Heart, Lung, and Blood Institute's website. This study, which is based on 62 lung cancer patients who have recieved radiotherapy, attempts to supplement the existing model of risk of cardiac event by utilizing microRNA gene expression data. After using principal components analysis to reduce the dimension of the data, we fit two models, with and without utilizing the microRNA gene expression data, and find that including the microRNA gene expression data does not significantly improve our ability to estimate the risk of having a cardiac event. 
 
 ## Introduction
 Lung cancer is responsible for the most deaths out of all cancers, and is the second most common form of cancer in both men and women. One form of available treatment is radiotherapy, in which x-rays are delivered to targeted areas with the goal of destroying cancer cells. Radiotherapy is effective at destroying rapidly dividing cancer cells, but can also damage nearby healthy tissues. One goal of researchers is to assess the negative side-effects of irradiating cardiac tissue while targeting cancer cells. Larger doses of irradiation to the heart have been shown to increase the chance of having a cardiac event, which can increase the chance of death among lung cancer patients. Identifying patients who are particularly susceptible to having cardiac events could allow doctors to provide more personalized treatment recommendations. 
@@ -32,6 +33,7 @@ library(ggplot2)
 library(rms)
 library(glmnet)
 library(broom)
+library(GGally)
 ```
 
 
@@ -56,7 +58,7 @@ cardiac <- cardiac[, Framingham.Coronary.Heart.Disease.Risk.Score..MDCalc. :=
 for (j in framingham_vars) {
   set(cardiac, j = j, value = as.numeric(cardiac[[j]]))
 }
-cardiac <- cardiac[49, time.to.grade2 := 19.3]
+#cardiac <- cardiac[49, time.to.grade2 := 19.3]
 setnames(cardiac, c("Grade 3+ Cardiac Event", "Grade 2+ Cardiac Event", "Event.of.Death..0.no.1.yes."), c("Grade3", "Grade2", "EventOfDeath"))
 
 ### add column: whether or not the person died BEFORE having a grade 2 event
@@ -141,7 +143,7 @@ Prior to fitting the models, the data was transformed to solve a few issues. The
 
 After fitting the first model, microRNA data was added to create the second model. To include the microRNA data, we reduced the dimensionality again by using another principal components analysis, this time only including the 62 microRNA variables. The top eight principal components from this analysis, representing just above 75% of the variation, were included in the second model, along with every variable already present in the first model, for a total of thirteen variables. 
 
-The likelihood ratio test to compare the two models was conducted using the "anova" function in R, and concordance was generated as part of the standard summary output in the coxph function. A surival curve was also produced using the "ggsurv" function. 
+The likelihood ratio test to compare the two models was conducted using the "anova" function in R, and concordance was generated as part of the standard summary output in the coxph function. The proportional hazards assumption for both models was tested using the "cox.zph" function and did not find evidence invalidating either model. A survival curve was also produced using the "ggsurv" function. 
 
 
 ```{r}
@@ -238,6 +240,7 @@ summary(cfit1)
 #write.csv(format(tidy(cfit1), digits = 1), "frampc_model.csv")
 #summary(no_fram_fit)
 anova(no_fram_fit, cfit1)
+#cox.zph(cfit1)
 ```
 
 ```{r, eval=FALSE, include=FALSE}
@@ -304,6 +307,7 @@ summary(cox_model_full)
 #write.csv(format(tidy(cox_model_full), digits = 1), "full_model.csv")
 
 #plot(survfit(cox_model_full))
+#plot(cox.zph(cox_model_full))
 
 ```
 
@@ -313,19 +317,21 @@ anova(cfit1, cox_model_full)
 ```
 
 
+
+
 ```{r}
 ## full model without fram pc
-testfull_data <- cbind(short_cardiac, mirna_pcs)
-testfit <- coxph(Surv(etime, event=="grade2") ~ 
-                     heart_Meandose + Age + 
-                 Total.Chol..btw.130.320.. + HDL.Chol..btw.20.100.. +
-            Systolic.BP..btw.20.190.. + Current.Smoker.0.no..1.yes +
-              HBP.Treated.0.no..1.yes..on.meds.. + 
-              Pre.Existing.Cardiac.Disease..CADorCHF..0.no.1.yes +
-              PC1 + PC2 + PC3 + PC4 + PC5 + PC6 + PC7 + PC8
-            , testfull_data)
-summary(testfit)
-anova(cfit1, testfit)
+#testfull_data <- cbind(short_cardiac, mirna_pcs)
+#testfit <- coxph(Surv(etime, event=="grade2") ~ 
+#                     heart_Meandose + Age + 
+#                 Total.Chol..btw.130.320.. + HDL.Chol..btw.20.100.. +
+#            Systolic.BP..btw.20.190.. + Current.Smoker.0.no..1.yes +
+#              HBP.Treated.0.no..1.yes..on.meds.. + 
+#              Pre.Existing.Cardiac.Disease..CADorCHF..0.no.1.yes +
+#              PC1 + PC2 + PC3 + PC4 + PC5 + PC6 + PC7 + PC8
+#            , testfull_data)
+#summary(testfit)
+#anova(cfit1, testfit)
 ```
 
 
@@ -349,8 +355,19 @@ anova(cfit1, testfit)
 Women in the study have much lower Framingham risk scores on average, and are therefore presumed to be at lower risk of having cardiac events. Due to these imbalances, sex was not included as a covariate in the models, as inferences made on sex differences may not have been accurate. Reported p-values are from chi-squared tests for categorical variables and t-tests for continuous variables. 
 
 #### Figure 1: Survival plot
+```{r}
+short_cardiac[heart_Meandose >= 12, hmd12 := 1]
+short_cardiac[heart_Meandose < 12, hmd12 := 0]
+s <- survfit(Surv(time.to.grade2/12, Grade2) ~ hmd12, data = short_cardiac) 
+```
 
-
+```{r}
+ggsurv(s, lty.est = c(1,2), cens.size = 4, back.white = T) + 
+  ylim(0, 1) + 
+  labs(x="Time (years)") +
+  scale_x_continuous(breaks=seq(0,10,1))
+```
+This plot shows the difference in survival between people who had a mean dose of radiation of greater than 12 gray, shown with a red solid line, and those who suffered a mean dose of radtion of less than 12, shown with a blue dotted line. Patients who have suffered larger doses of radiation to the heart have an increased risk of having a Grade 2 or higher cardiac event. 
 
 #### Table 2: Results from two nested Cox regression models 
 
@@ -383,12 +400,15 @@ The two nested models are compared using a likelihood ratio test. The p-value is
 
 
 ## Discussion
-Metrics from the two models fit are shown in Table 2. The base model with just medical data performs significantly better than the null model, and is reasonably accurate with a concordance of 0.726. The second model has about the same p-value when compared to the null model, and has a slightly higher concordance value of 0.789. These values indicate that the base model with just medical data already models the data well, and that adding microRNA data does not appear to improve the concordance by much. This interpretation is solidified by the result from the likelihood ratio test comparing the two nested models shown in Table 3. With a p-value of 0.11, the second model, which incorporates microRNA data, does not significantly improve upon the base model with just medical history data. After seeing that principal components taken from the microRNA data as a whole do not improve the model, we conclude that there are no particular genes that would meaningfully improve the model on their own and stop our search here. 
+Metrics from the two models fit are shown in Table 2. The base model with just medical data performs significantly better than the null model, and is reasonably accurate with a concordance of 0.726. The second model has about the same p-value when compared to the null model, and has a slightly higher concordance value of 0.789. These values indicate that the base model with just medical data already models the data well, and that adding microRNA data does not appear to improve the concordance by much. This interpretation is solidified by the result from the likelihood ratio test comparing the two nested models shown in Table 3. With a p-value of 0.11, the second model, which incorporates microRNA data, does not significantly improve upon the base model with just medical history data. After seeing that principal components taken from the microRNA data as a whole do not improve the model, we conclude that there are no particular genes that would meaningfully improve the model on their own. 
 
 
 ## References
-
+1. Yi-Jing Shen, Shu-Guang Huang, Improve Survival Prediction Using Principal Components of Gene Expression Data, Genomics, Proteomics & Bioinformatics, Volume 4, Issue 2, 2006, Pages 110-119, ISSN 1672-0229, http://dx.doi.org/10.1016/S1672-0229(06)60022-3.
+(http://www.sciencedirect.com/science/article/pii/S1672022906600223)
 
 
 
 ## Appendix
+See the following link: http://bit.ly/2lFB1px for the code to produce this document as well as all figures and analysis. 
+
