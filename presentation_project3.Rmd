@@ -2,7 +2,7 @@
 title: "Project 3"
 author: "Dylan Sun"
 date: "2017-02-21"
-output: slidy_presentation
+output: pdf_document
 ---
 
 

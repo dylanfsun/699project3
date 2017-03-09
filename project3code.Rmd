@@ -1,0 +1,52 @@
+---
+title: "project3code"
+author: "Dylan Sun"
+date: "3/8/2017"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message=FALSE, warning=FALSE, results = "hide")
+```
+
+
+
+## penalty regularization
+```{r}
+#x <- model.matrix( ~heart_Meandose+Gender.M.F+Age+Total.Chol..btw.130.320..+HDL.Chol..btw.20.100..+Systolic.BP..btw.20.190..+Current.Smoker.0.no..1.yes+HBP.Treated.0.no..1.yes..on.meds..+Pre.Existing.Cardiac.Disease..CADorCHF..0.no.1.yes+NA01+NA03+NA04+NA05+NA06+NA07+NA08+NA09+NA12+NB02+NB03+NB04+NB05+NB06+NB07+NB08+NB09+NB10+NB12+NC01+NC03+NC04+NC06+NC08+NC09+NC10+ND01+ND02+ND03+ND04+ND05+ND06+ND07+ND08+ND09+ND10+ND11+ND12+NE01+NE03+NE04+NE06+NE07+NE08+NE10+NE11+NE12+NF01+NF02+NF03+NF05+NF09+NF10+NG01+NG03+NG05+NG06+NG07+NG08+NG09+NG10+NG11, short_cardiac) 
+x <- model.matrix( ~NA01+NA03+NA04+NA05+NA06+NA07+NA08+NA09+NA12+NB02+NB03+NB04+NB05+NB06+NB07+NB08+NB09+NB10+NB12+NC01+NC03+NC04+NC06+NC08+NC09+NC10+ND01+ND02+ND03+ND04+ND05+ND06+ND07+ND08+ND09+ND10+ND11+ND12+NE01+NE03+NE04+NE06+NE07+NE08+NE10+NE11+NE12+NF01+NF02+NF03+NF05+NF09+NF10+NG01+NG03+NG05+NG06+NG07+NG08+NG09+NG10+NG11, short_cardiac) 
+# 1 is male 0 female
+
+
+```
+
+```{r}
+etime <- with(short_cardiac, ifelse(Grade2==0, short_cardiac$survival, short_cardiac$time.to.grade2))
+event <- with(short_cardiac, ifelse(Grade2==0, 2*short_cardiac$EventOfDeath, 1))
+event <- factor(event, 0:2, labels=c("censor", "grade2", "death"))
+#table(event)
+```
+
+```{r}
+## lasso
+#cv.fit <- cv.glmnet(x, Surv(etime, event=="grade2"), family = "cox", maxit = 20000, nfolds = 10)
+#fit <- glmnet(x, Surv(etime, event=="grade2"), family = "cox", maxit = 20000)
+```
+
+```{r}
+#plot(cv.fit)
+
+
+#jpeg('cv.jpg')
+#plot(cv.fit)
+#dev.off()
+```
+
+
+```{r}
+#Coefficients <- coef(fit, s = cv.fit$lambda.min)
+#Active.Index <- which(Coefficients != 0)
+#Active.Coefficients <- Coefficients[Active.Index]
+#Active.Index
+#Active.Coefficients
+```

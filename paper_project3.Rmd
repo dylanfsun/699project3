@@ -1,12 +1,28 @@
 ---
-title: "Paper"
+title: "Project 3: Assessing the risk of cardiac events using microRNA expression data"
 author: "Dylan Sun"
-date: "2/16/2017"
+date: "2017-03-08"
+header-includes:
+    - \usepackage{setspace}\doublespacing
 output: pdf_document
 ---
 
-### Load packages
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message=FALSE, warning=FALSE, results = "hide")
+```
+
+## Abstract
+
+## Introduction
+Lung cancer is responsible for the most deaths out of all cancers, and is the second most common form of cancer in both men and women. One form of available treatment is radiotherapy, in which x-rays are delivered to targeted areas with the goal of destroying cancer cells. Radiotherapy is effective at destroying rapidly dividing cancer cells, but can also damage nearby healthy tissues. One goal of researchers is to assess the negative side-effects of irradiating cardiac tissue while targeting cancer cells. Larger doses of irradiation to the heart have been shown to increase the chance of having a cardiac event, which can increase the chance of death among lung cancer patients. Identifying patients who are particularly susceptible to having cardiac events could allow doctors to provide more personalized treatment recommendations. 
+
+Besides using baseline health variables such as age and smoking status, another possible option for identifying these susceptible patients is through using microRNA expression data. MicroRNAs are post-transcriptional regulators of gene expression that have been used as biomarkers for cancer detection and prognosis. Conducting microRNA analysis is relatively cheap and effective, and so identifying patients susceptible to cardiac events using microRNA data would be both greatly beneficial and easily adoptable.
+
+The goal of this study is determine whether or not microRNA expression data can be used to improve a model of the risk of having a cardiac event following radiotherapy, beyond what can already be drawn from standard patient medical histories. 
+
+
 ```{r, message=FALSE, warning=FALSE}
+### Load packages
 library(data.table)
 library(readxl)
 library(survival)
@@ -18,9 +34,10 @@ library(glmnet)
 library(broom)
 ```
 
-### Load data
+
 ```{r}
-#cardiac <- read_excel("~/Downloads/cardiac_mirna.xlsx")
+### Load data
+#cardiac <- read_excel("~/Downloads/cardiac_mirna_updated.xlsx")
 #cardiac <- data.table(cardiac, na.strings = c("NA"))
 #library(readr)
 #write_tsv(cardiac, "cardiac.tsv")
@@ -47,8 +64,9 @@ setnames(cardiac, c("Grade 3+ Cardiac Event", "Grade 2+ Cardiac Event", "Event.o
 cardiac <- cardiac[, dieBeforeGrade2 := ifelse(EventOfDeath == 1 & Grade2 == 0, 1, 0)]
 ```
 
-Number of people that died from cardiac disease?:
+
 ```{r}
+# Number of people that died from cardiac disease?:
 dim(cardiac[Grade2 == 0 & EventOfDeath == 1])
 dim(cardiac[Grade3 == 0 & EventOfDeath == 1])
 dim(cardiac[Grade3 == 0 & Grade2 == 0 & EventOfDeath == 1])
@@ -91,16 +109,16 @@ cat_vars <- c("Institution", "Gender.M.F", "Race..AA...0.White...1.Other...2",
               "Concurrent.chemotherapy..0.no.1.yes.", "Event.of.Death..0.no.1.yes.", 
               "Grade 3+ Cardiac Event", "Grade 2+ Cardiac Event",
               "Pre.Existing.Cardiac.Disease..CADorCHF..1.no.0.yes" )
-tab1 <- CreateTableOne(data = cardiac, vars = vars, factorVars = cat_vars, includeNA = F)
-tab1mat <- print(tab1, showAllLevels = T)
-write.csv(tab1mat, file = "tableone.csv")
-descriptive <- fread("tableone.csv")
+#tab1 <- CreateTableOne(data = cardiac, vars = vars, factorVars = cat_vars, includeNA = F)
+#tab1mat <- print(tab1, showAllLevels = T)
+#write.csv(tab1mat, file = "tableone.csv")
+#descriptive <- fread("tableone.csv")
 ```
 
 
-## Important descriptive stats
-Be careful; there are two "Pre.Existing.Cardiac.Disease..CADorCHF..0.no.1.yes" variables...
 ```{r}
+## Important descriptive stats
+#Be careful; there are two "Pre.Existing.Cardiac.Disease..CADorCHF..0.no.1.yes" variables...
 # percentages are calculated after excluding missing values
 vars <- c("Age", "heart_Meandose","Framingham.Coronary.Heart.Disease.Risk.Score..MDCalc.",
             "Grade3", "Grade2",
@@ -116,48 +134,52 @@ tabl1m <- fread("table1.csv")
 ```
 
 
+## Methods
+To assess the predictive abilities of the microRNA data, we fit two semiparametric Cox proportional hazards models to the data using the survival package in R. Both models used time to first Grade 2 or higher cardiac event (Grade 2+) as the outcome variable, and considered patients who died without experiencing a Grade 2+ cardiac event to be right censored. While Grade 3 or higher cardiac events are more dangerous and are of greater interest, time to Grade 2+ events was selected as the outcome variable due to limitations in sample size, as Grade 3+ cardiac events are rarer. The first of the two models fit to the data contained only baseline medical variables, excluding microRNA data, while the second model contained microRNA variables in addition the same baseline variables as the first model. These two nested models were compared using a likelihood ratio test, and were assessed for performance via concordance. 
 
-## Model 
-Variables: Radiation dose, heart disease y/n, framingham risk score (only have his if no cardiac disease)
-Outcome: Survival (months) or last follow-up 
+Prior to fitting the models, the data was transformed to solve a few issues. The first subject in the data was missing several key variables, and was therefore excluded from the study. After removing the first subject, the dimensionality of the data was then reduced using principal components analysis. To represent the non-microRNA medical predictors, the following variables were included in the principal components analysis: mean dose of radiation to the heart, age, total cholesterol, high-density lipoprotein, systolic blood pressure, current smoking status, treatment of high blood pressure status, and pre-existing cardiac disease. These variables were chosen because they can be used to calculate Framingham risk score, which is known in the literature to useful for modeling cardiac events. However, the Framingham risk score is typically available only for patients who do not have pre-existing cardiac disease, and was therefore missing for a large number of patients in the study and not included in the models. The top four principal components from the principal components analysis represented just over 75% of the variation in the data, and were included in the first model together with mean dose of radiation to the heart for a total of five predictor variables. 
 
-Age, gender, other variables are sort of contained in the Framingham risk score (but not for people that have pre-existing disease). There are few non-whites in the study and relatively few females in the study, so including these is questionable. 
+After fitting the first model, microRNA data was added to create the second model. To include the microRNA data, we reduced the dimensionality again by using another principal components analysis, this time only including the 62 microRNA variables. The top eight principal components from this analysis, representing just above 75% of the variation, were included in the second model, along with every variable already present in the first model, for a total of thirteen variables. 
 
-Framingham score might be associated with age and gender? Positive correlation pattern between Age and Framingham risk score. Framingham risk score is composed of other variables including:  age, sex, LDL cholesterol, HDL cholesterol, blood pressure, and smoking. Therefore including risk score while also including these other variables is a little suspicious. We only have Framingham risk score if the patient does not have pre-existing cardiac disease. Keep in mind also that the scoring is a bit different between men and women. 
+The likelihood ratio test to compare the two models was conducted using the "anova" function in R, and concordance was generated as part of the standard summary output in the coxph function. A surival curve was also produced using the "ggsurv" function. 
 
-We may have to fit separate models depending on whether or not the patient has a pre-existing cardiac condition (i.e. whether or not the patient has a Framingham risk score; right now when you fit the model it just omits the entries with no risk score, because there's missing data). We are missing a lot of people's framingham risk scores. If you look at the data that goes into the Framingham risk score, however, we are only missing patient 1's information. 
 
 ```{r}
-plot(cardiac$Framingham.Coronary.Heart.Disease.Risk.Score..MDCalc., cardiac$Age)
-sum(cardiac$Pre.Existing.Cardiac.Disease..CADorCHF..1.no.0.yes)/dim(cardiac)[1]
+#plot(cardiac$Framingham.Coronary.Heart.Disease.Risk.Score..MDCalc., cardiac$Age)
+#sum(cardiac$Pre.Existing.Cardiac.Disease..CADorCHF..1.no.0.yes)/dim(cardiac)[1]
 ```
 
 
+
+```{r}
 ### Look at columns to figure out the competing risk situation
-```{r}
-View(cardiac[, .(survival, time.to.grade3, time.to.grade2, EventOfDeath, Grade3, Grade2, dieBeforeGrade2)])
+#View(cardiac[, .(survival, time.to.grade3, time.to.grade2, EventOfDeath, Grade3, Grade2, dieBeforeGrade2)])
 ```
 
-### Competing risk model
-We overestimate the number of people that will have a grade 2 if we do not take into account the fact that many people die before having a grade 2.
+
 ```{r}
+#### Competing risk model
+##We overestimate the number of people that will have a grade 2 if we do not take into account the fact that many people die before having a grade 2.
 etime <- with(cardiac, ifelse(Grade2==0, cardiac$survival, cardiac$time.to.grade2))
 event <- with(cardiac, ifelse(Grade2==0, 2*cardiac$EventOfDeath, 1))
 event <- factor(event, 0:2, labels=c("censor", "grade2", "death"))
-table(event)
+#table(event)
 ```
 
-### competing risk with continuous
+
 ```{r}
+### competing risk with continuous
+#Other way:
+#Interaction between framingham and indicator(no,yes); the model will use risk score if available, but create a separate beta otherwise
 cfit1 <- coxph(Surv(etime, event=="grade2") ~ 
-                     heart_Meandose + Gender.M.F + Age + 
+                     heart_Meandose + Age + 
                  Total.Chol..btw.130.320.. + HDL.Chol..btw.20.100.. +
             Systolic.BP..btw.20.190.. + Current.Smoker.0.no..1.yes +
               HBP.Treated.0.no..1.yes..on.meds.. + 
               Pre.Existing.Cardiac.Disease..CADorCHF..0.no.1.yes
             , cardiac)
 cfit2 <- coxph(Surv(etime, event=="death") ~ 
-                     heart_Meandose + Gender.M.F + Age + 
+                     heart_Meandose + Age + 
                  Total.Chol..btw.130.320.. + HDL.Chol..btw.20.100.. +
             Systolic.BP..btw.20.190.. + Current.Smoker.0.no..1.yes +
               HBP.Treated.0.no..1.yes..on.meds.. + 
@@ -168,20 +190,21 @@ summary(cfit1)
 #write.csv(format(tidy(cfit1), digits = 1), "basic_model.csv")
 ```
 
-### principal components
 
-#### non-micro: doesn't work because of missing data
-Only missing one person's data if we don't include the actual Framingham risk score
 ```{r}
+### principal components
+#### non-micro: doesn't work because of missing data
+##Only missing one person's data if we don't include the actual Framingham risk score
 pc_data <- cardiac[2:63, c(framingham_vars), with=F]
 pc <- prcomp(pc_data, center = T, scale. = T)
 summary(pc)
 #write.csv(format(data.frame(unclass(summary(pc)$importance)), digits=2), "fram_pcs.csv")
 ```
-#### scree plot
-Four pc's explain 75 percent of the variation for the framingham risk score variables
+
 ```{r}
-plot(pc, type = "l")
+#### scree plot
+###Four pc's explain 75 percent of the variation for the framingham risk score variables
+#plot(pc, type = "l")
 
 #jpeg('fram_scree.jpg')
 #plot(pc, type = "l")
@@ -203,13 +226,13 @@ setnames(fram_pcs, c("PC1", "PC2", "PC3", "PC4"), c("framPC1", "framPC2", "framP
 
 ```{r}
 no_fram_fit <- coxph(Surv(etime, event=="grade2") ~ 
-                     heart_Meandose + Gender.M.F
+                     heart_Meandose
             , fram_pcs)
 cfit1 <- coxph(Surv(etime, event=="grade2") ~ 
-                     heart_Meandose + Gender.M.F + framPC1 + framPC2 + framPC3 + framPC4
+                     heart_Meandose + framPC1 + framPC2 + framPC3 + framPC4
             , fram_pcs)
 cfit2 <- coxph(Surv(etime, event=="death") ~ 
-                     heart_Meandose + Gender.M.F + framPC1 + framPC2 + framPC3 + framPC4
+                     heart_Meandose + framPC1 + framPC2 + framPC3 + framPC4
             , fram_pcs)
 summary(cfit1)
 #write.csv(format(tidy(cfit1), digits = 1), "frampc_model.csv")
@@ -217,7 +240,7 @@ summary(cfit1)
 anova(no_fram_fit, cfit1)
 ```
 
-```{r}
+```{r, eval=FALSE, include=FALSE}
 newdata <- expand.grid(Gender.M.F=c("F", "M"), heart_Meandose=c(10, 20), 
                        framPC1=0, framPC2=0, framPC3=0, framPC4=0)
 temp <- matrix(list(), 3,3)
@@ -235,9 +258,8 @@ paste, sep=", "),
 col=1:2, lty=c(1,1,2,2), bty='n', lwd=2)
 ```
 
-
-### on miRNA data
 ```{r}
+### on miRNA data
 mirna_vars <- c("NA01","NA03", "NA04", "NA05", "NA06", "NA07", "NA08", "NA09", "NA12", "NB02", "NB03", "NB04", "NB05", "NB06", "NB07", "NB08", "NB09", "NB10", "NB12","NC01", "NC03", "NC04","NC06", "NC08", "NC09", "NC10", "ND01", "ND02", "ND03", "ND04", "ND05", "ND06", "ND07", "ND08", "ND09", "ND10", "ND11", "ND12", "NE01", "NE03", "NE04", "NE06", "NE07", "NE08", "NE10", "NE11", "NE12", "NF01", "NF02", "NF03", "NF05", "NF09", "NF10", "NG01", "NG03", "NG05", "NG06", "NG07", "NG08", "NG09", "NG10","NG11")
 ```  
 ```{r}
@@ -246,10 +268,12 @@ m_data <- short_cardiac[, c(mirna_vars), with=F]
 pc <- prcomp(m_data, center = T, scale. = T)
 mirna_pcs <- cbind(short_cardiac[, .(Grade2)], data.table(pc$x[,1:8]))
 # 0.7552 of variance explained by the first 8 principal components
+#summary(pc)
 ```
-#### scree plot
+
 ```{r}
-plot(pc, type = "l")
+#### scree plot
+#plot(pc, type = "l")
 
 #write.csv(format(data.frame(unclass(summary(pc)$importance))[,1:10], digits=2), "rna_pcs.csv")
 
@@ -259,13 +283,9 @@ plot(pc, type = "l")
 
 ```
 
-```{r}
-qplot(x=PC1, y=PC2, data=mirna_pcs, colour=factor(Grade2)) 
-```
 
-
-## regression with PC's
 ```{r}
+## regression with just PC's
 cox_model_pc <- coxph(Surv(etime, event=="grade2") ~ 
                      PC1 + PC2 + PC3 + PC4 + PC5 + PC6 + PC7 + PC8, data = mirna_pcs)
 summary(cox_model_pc)
@@ -273,12 +293,12 @@ summary(cox_model_pc)
 ```
 
 
-### With the mirna data and also framingham data
 ```{r}
+### Regression with the mirna data and also framingham data
 full_data <- cbind(fram_pcs, mirna_pcs)
 # with
 cox_model_full <- coxph(Surv(etime, event=="grade2") ~ 
-                     heart_Meandose + Gender.M.F + framPC1 + framPC2 + framPC3 + framPC4 + 
+                     heart_Meandose + framPC1 + framPC2 + framPC3 + framPC4 + 
                      PC1 + PC2 + PC3 + PC4 + PC5 + PC6 + PC7 + PC8, data = full_data)
 summary(cox_model_full)
 #write.csv(format(tidy(cox_model_full), digits = 1), "full_model.csv")
@@ -292,11 +312,12 @@ anova(cfit1, cox_model_full)
 #write.csv(format(tidy(anova(cfit1, cox_model_full)), digits = 1), "anova.csv")
 ```
 
-## full model without fram pc
+
 ```{r}
+## full model without fram pc
 testfull_data <- cbind(short_cardiac, mirna_pcs)
 testfit <- coxph(Surv(etime, event=="grade2") ~ 
-                     heart_Meandose + Gender.M.F + Age + 
+                     heart_Meandose + Age + 
                  Total.Chol..btw.130.320.. + HDL.Chol..btw.20.100.. +
             Systolic.BP..btw.20.190.. + Current.Smoker.0.no..1.yes +
               HBP.Treated.0.no..1.yes..on.meds.. + 
@@ -308,46 +329,66 @@ anova(cfit1, testfit)
 ```
 
 
-## penalty regularization
-```{r}
-#x <- model.matrix( ~heart_Meandose+Gender.M.F+Age+Total.Chol..btw.130.320..+HDL.Chol..btw.20.100..+Systolic.BP..btw.20.190..+Current.Smoker.0.no..1.yes+HBP.Treated.0.no..1.yes..on.meds..+Pre.Existing.Cardiac.Disease..CADorCHF..0.no.1.yes+NA01+NA03+NA04+NA05+NA06+NA07+NA08+NA09+NA12+NB02+NB03+NB04+NB05+NB06+NB07+NB08+NB09+NB10+NB12+NC01+NC03+NC04+NC06+NC08+NC09+NC10+ND01+ND02+ND03+ND04+ND05+ND06+ND07+ND08+ND09+ND10+ND11+ND12+NE01+NE03+NE04+NE06+NE07+NE08+NE10+NE11+NE12+NF01+NF02+NF03+NF05+NF09+NF10+NG01+NG03+NG05+NG06+NG07+NG08+NG09+NG10+NG11, short_cardiac) 
-x <- model.matrix( ~NA01+NA03+NA04+NA05+NA06+NA07+NA08+NA09+NA12+NB02+NB03+NB04+NB05+NB06+NB07+NB08+NB09+NB10+NB12+NC01+NC03+NC04+NC06+NC08+NC09+NC10+ND01+ND02+ND03+ND04+ND05+ND06+ND07+ND08+ND09+ND10+ND11+ND12+NE01+NE03+NE04+NE06+NE07+NE08+NE10+NE11+NE12+NF01+NF02+NF03+NF05+NF09+NF10+NG01+NG03+NG05+NG06+NG07+NG08+NG09+NG10+NG11, short_cardiac) 
-# 1 is male 0 female
 
+## Results
 
-```
+#### Table 1: Gender imbalance in the Framingham risk score. 
+|  | level | Female | Male | p-value |
+|-------------------------------------------------------------------|-------|---------------|--------------|--------|
+| n |  | 15 | 48 |  |
+| Age (mean (sd)) |  | 62 (10) | 68 (9) | 0.043 |
+| Heart mean dose (mean (sd)) |  | 11.5 (7.8) | 14.4 (9.0) | 0.27 |
+| Framingham Risk Score (mean (sd)) |  | 4.54 (3.57) | 18.23 (7.09) | <0.001 |
+| Grade 3 (%) | 0 | 14 (93.3) | 38 (79.2) | 0.383 |
+|  | 1 | 1 ( 6.7) | 10 (20.8) |  |
+| Grade 2 (%) | 0 | 12 (80.0) | 23 (47.9) | 0.059 |
+|  | 1 | 3 (20.0) | 25 (52.1) |  |
+| Pre-existing cardiac | 0 | 13 (86.7) | 31 (64.6) | 0.192 |
+|  | 1 | 2 (13.3) | 17 (35.4) |  |
 
-```{r}
-etime <- with(short_cardiac, ifelse(Grade2==0, short_cardiac$survival, short_cardiac$time.to.grade2))
-event <- with(short_cardiac, ifelse(Grade2==0, 2*short_cardiac$EventOfDeath, 1))
-event <- factor(event, 0:2, labels=c("censor", "grade2", "death"))
-#table(event)
-```
+Women in the study have much lower Framingham risk scores on average, and are therefore presumed to be at lower risk of having cardiac events. Due to these imbalances, sex was not included as a covariate in the models, as inferences made on sex differences may not have been accurate. Reported p-values are from chi-squared tests for categorical variables and t-tests for continuous variables. 
 
-```{r}
-## lasso
-cv.fit <- cv.glmnet(x, Surv(etime, event=="grade2"), family = "cox", maxit = 20000, nfolds = 10)
-fit <- glmnet(x, Surv(etime, event=="grade2"), family = "cox", maxit = 20000)
-```
-
-```{r}
-plot(cv.fit)
-
-
-#jpeg('cv.jpg')
-#plot(cv.fit)
-#dev.off()
-```
-
-
-```{r}
-Coefficients <- coef(fit, s = cv.fit$lambda.min)
-Active.Index <- which(Coefficients != 0)
-Active.Coefficients <- Coefficients[Active.Index]
-Active.Index
-Active.Coefficients
-```
+#### Figure 1: Survival plot
 
 
 
+#### Table 2: Results from two nested Cox regression models 
 
+-------------------------------------------
+Model    Concordance (se)   Likelihood         
+                            Ratio Test 
+                            (p-value)
+------- ------------------ --------------- 
+Base      0.726 (0.062)       0.0038  
+model 
+
+microRNA   0.789 (0.062)      0.0039 
+model
+-------------------------------------------
+
+Both models were fit with time to Grade 2 or more cardiac event as the outcome variable. The base model contains mean dose of radiation to the heart and the top four principal components taken from the analysis of the medical variables listed in the methods section. The microRNA model contains all the covariates in the base model, as well as eight additional principal components taken from a separate principal components analysis of the microRNA expression data. Concordance is the proportion of pairs of cases in which the case with the higher risk had an event before the case with the lower risk. A concordance of 0.5 would imply that the model is not useful, while a concordance of 1.0 would indicate a perfect model. The reported likelihood ratio tests compare the respective models against the null model with no covariates, and lead to the conclusion that both models individually perform better than the null model. 
+
+#### Table 3: Results comparing two nested Cox regression models
+
+Model 1: Mean dose of radiation to the heart, medical PC1..medical PC4
+ 
+Model 2: Mean dose of radiation to the heart, medical PC1..medical PC4, microRNA PC1..microRNA PC8
+
+|   | df | p.value |
+|---|----|---------|
+| Model 1 |   |        |
+| Model 2 | 8 | 0.11 |
+
+The two nested models are compared using a likelihood ratio test. The p-value is generated from a chi-squared statistic with eight degrees of freedom. 
+
+
+## Discussion
+Metrics from the two models fit are shown in Table 2. The base model with just medical data performs significantly better than the null model, and is reasonably accurate with a concordance of 0.726. The second model has about the same p-value when compared to the null model, and has a slightly higher concordance value of 0.789. These values indicate that the base model with just medical data already models the data well, and that adding microRNA data does not appear to improve the concordance by much. This interpretation is solidified by the result from the likelihood ratio test comparing the two nested models shown in Table 3. With a p-value of 0.11, the second model, which incorporates microRNA data, does not significantly improve upon the base model with just medical history data. After seeing that principal components taken from the microRNA data as a whole do not improve the model, we conclude that there are no particular genes that would meaningfully improve the model on their own and stop our search here. 
+
+
+## References
+
+
+
+
+## Appendix
